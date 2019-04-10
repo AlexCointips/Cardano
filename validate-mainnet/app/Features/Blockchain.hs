@@ -13,16 +13,16 @@ where
 
 import Cardano.Prelude
 
-import Formatting (build, sformat)
+import Control.Monad.Trans.Either (left, runEitherT)
 
 import Cardano.Chain.Block
   ( ChainValidationState
   , initialChainValidationState
   )
-import Cardano.Chain.Common (parseReqNetworkMag)
+import Cardano.Chain.Conversion (SpecifyGenesis(..), convertConfig)
 import Cardano.Chain.Epoch.Validation (EpochError, validateEpochFile)
 import qualified Cardano.Chain.Genesis as Genesis
-import Cardano.Shell.Constants.Types (CardanoConfiguration(..), Core(..), Genesis(..))
+import Cardano.Shell.Constants.Types (CardanoConfiguration(..))
 import Cardano.Shell.Features.Logging (LoggingLayer(..))
 import Cardano.Shell.Types
   (ApplicationEnvironment(..), CardanoEnvironment, CardanoFeature(..))
@@ -65,7 +65,7 @@ init config appEnv ll initialCVS cvsVar = do
     Production  -> liftIO mainnetEpochFiles
 
   -- Validate epoch files.
-  result <- liftIO . runExceptT $ foldM
+  result <- liftIO . runEitherT $ foldM
     (validateEpochFile (genesisConfig config) ll)
     initialCVS
     files
@@ -78,41 +78,47 @@ createBlockchainFeature
   -> CardanoConfiguration
   -> ApplicationEnvironment
   -> LoggingLayer
-  -> IO (BlockchainLayer, CardanoFeature)
+  -> ExceptT
+       Genesis.ConfigurationError
+       IO
+       (BlockchainLayer, CardanoFeature)
 createBlockchainFeature _ cc appEnv loggingLayer = do
 
   -- Construct `Config` using mainnet-genesis.json
-  let mainnetGenFilepath = geSrc . coGenesis $ ccCore cc
-  let reqNetworkMagic = parseReqNetworkMag . coRequiresNetworkMagic $ ccCore cc
+  eConfig <- liftIO . runEitherT $ convertConfig FromSrc cc
 
-  config <- either (panic . sformat build) identity
-    <$> runExceptT
-          (Genesis.mkConfigFromFile reqNetworkMagic mainnetGenFilepath Nothing)
+  case eConfig of
+    Left  err    -> left err
+    Right config -> do
 
-  let
-    blockchainConf =
-      BlockchainConfiguration "cardano-mainnet-mirror/epochs" config
+      let
+        blockchainConf =
+          BlockchainConfiguration "cardano-mainnet-mirror/epochs" config
 
-  -- Create initial `ChainValidationState`.
-  initCVS <- either (panic . show) identity
-    <$> runExceptT (initialChainValidationState config)
+      -- Create initial `ChainValidationState`.
+      initCVS <- either (panic . show) identity
+        <$> runEitherT (initialChainValidationState config)
 
-  -- Create MVar that will hold the result of the bulk chain validation.
-  cvsVar <- newEmptyMVar
+      -- Create MVar that will hold the result of the bulk chain validation.
+      cvsVar <- liftIO newEmptyMVar
 
-  -- Create Blockchain feature
-  let
-    bcFeature = CardanoFeature
-      { featureName     = "Blockchain"
-      -- `featureStart` is the logic to be executed of a given feature.
-      , featureStart    = init blockchainConf appEnv loggingLayer initCVS cvsVar
-      , featureShutdown = cleanup
-      }
+      -- Create `BlockchainLayer` which allows us to see the status of
+      -- the blockchain feature.
+      let
+        bcLayer =
+          BlockchainLayer {chainValidationStatus = liftIO $ tryReadMVar cvsVar}
 
-  -- Create `BlockchainLayer` which allows us to see the status of
-  -- the blockchain feature.
-  let
-    bcLayer =
-      BlockchainLayer
-        { chainValidationStatus = liftIO $ tryReadMVar cvsVar}
-  pure (bcLayer, bcFeature)
+      -- Create Blockchain feature
+      let
+        bcFeature = CardanoFeature
+          { featureName     = "Blockchain"
+          -- `featureStart` is the logic to be executed of a given feature.
+          , featureStart    = init
+            blockchainConf
+            appEnv
+            loggingLayer
+            initCVS
+            cvsVar
+          , featureShutdown = cleanup
+          }
+      pure (bcLayer, bcFeature)

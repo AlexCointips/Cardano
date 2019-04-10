@@ -29,7 +29,9 @@ extra-deps:
       - byron/chain/executable-spec
 
   # Currently Hackage only
-  - tasty-hedgehog-1.0.0.0
+  - sequence-0.9.8
+  - tasty-hedgehog-0.2.0.0
+  - transformers-either-0.1.1
 
   # To be able to use `stack hoogle`
   - haskell-src-exts-1.21.0

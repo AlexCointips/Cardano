@@ -7,6 +7,7 @@
 module Cardano.Chain.Genesis.Config
   ( StaticConfig(..)
   , Config(..)
+  , ConfigurationError(..)
   , configGenesisHeaderHash
   , configK
   , configSlotSecurityParam
@@ -37,7 +38,6 @@ import Data.Coerce (coerce)
 import Data.Time (UTCTime)
 import Formatting (build, bprint, string)
 import qualified Formatting.Buildable as B
-import System.FilePath ((</>))
 import System.IO.Error (userError)
 
 import Cardano.Binary (Annotated(..), Raw)
@@ -211,8 +211,6 @@ configAvvmDistr = gdAvvmDistr . configGenesisData
 mkConfigFromStaticConfig
   :: (MonadError ConfigurationError m, MonadIO m)
   => RequiresNetworkMagic
-  -> FilePath
-  -- ^ Directory where 'configuration.yaml' is stored
   -> Maybe UTCTime
   -- ^ Optional system start time.
   --   It must be given when the genesis spec uses a testnet initializer.
@@ -220,7 +218,7 @@ mkConfigFromStaticConfig
   -- ^ Optional seed which overrides one from testnet initializer if provided
   -> StaticConfig
   -> m Config
-mkConfigFromStaticConfig rnm confDir mSystemStart mSeed = \case
+mkConfigFromStaticConfig rnm mSystemStart mSeed = \case
   -- If a 'GenesisData' source file is given, we check its hash against the
   -- given expected hash, parse it, and use the GenesisData to fill in all of
   -- the obligations.
@@ -230,7 +228,16 @@ mkConfigFromStaticConfig rnm confDir mSystemStart mSeed = \case
 
     isNothing mSeed `orThrowError` MeaninglessSeed
 
-    mkConfigFromFile rnm (confDir </> fp) (Just expectedHash)
+    -- Check expectedHash is equivalent to hash of `mainnet-genesis.json` at fp
+    (_, genesisHash) <-
+      liftEither . first ConfigurationGenesisDataError =<< runExceptT
+        (readGenesisData fp)
+
+    unGenesisHash genesisHash
+      ==             expectedHash
+      `orThrowError` GenesisHashMismatch genesisHash expectedHash
+
+    mkConfigFromFile rnm fp (Right expectedHash)
 
 
   -- If a 'GenesisSpec' is given, we ensure we have a start time (needed if it's
@@ -256,7 +263,7 @@ mkConfigFromFile
   :: (MonadError ConfigurationError m, MonadIO m)
   => RequiresNetworkMagic
   -> FilePath
-  -> Maybe (Hash Raw)
+  -> Either ConfigurationError (Hash Raw)
   -> m Config
 mkConfigFromFile rnm fp mGenesisHash = do
   (genesisData, genesisHash) <-
@@ -264,8 +271,8 @@ mkConfigFromFile rnm fp mGenesisHash = do
       (readGenesisData fp)
 
   case mGenesisHash of
-    Nothing -> pure ()
-    Just expectedHash ->
+    Left _ -> pure ()
+    Right expectedHash ->
       (unGenesisHash genesisHash == expectedHash)
         `orThrowError` GenesisHashMismatch genesisHash expectedHash
 
@@ -288,8 +295,7 @@ mkConfig startTime genesisSpec = do
     { configGenesisData      = genesisData
     , configGenesisHash      = genesisHash
     , configGeneratedSecrets = Just generatedSecrets
-    , configReqNetMagic      = getRequiresNetworkMagic
-                                 (gsProtocolMagic genesisSpec)
+    , configReqNetMagic = getRequiresNetworkMagic (gsProtocolMagic genesisSpec)
     }
   where
     -- Anything will do for the genesis hash. A hash of "patak" was used before,
@@ -308,6 +314,7 @@ data ConfigurationError
   | MeaninglessSeed
   -- ^ Custom seed was provided, but it doesn't make sense
   | ConfigurationGenerationError GenesisDataGenerationError
+  | GenesisHashDecodeError Text
   deriving (Show)
 
 instance B.Buildable ConfigurationError where
@@ -321,6 +328,8 @@ instance B.Buildable ConfigurationError where
              . build
              )
              genesisDataError
+    GenesisHashDecodeError decodeErr ->
+      bprint string $ toS decodeErr
     GenesisHashMismatch genesisHash expectedHash ->
       bprint ("GenesisData canonical JSON hash is different than expected. GenesisHash: "
              . string

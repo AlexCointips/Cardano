@@ -24,5 +24,5 @@ readMainetCfg =
       (panic . sformat build)
       identity
     <$> runExceptT
-          (Genesis.mkConfigFromFile RequiresNoMagic "mainnet-genesis.json" Nothing)
+          (Genesis.mkConfigFromFile RequiresNoMagic "mainnet-genesis.json" (Left $ Genesis.GenesisHashDecodeError "placeholder" ))
 

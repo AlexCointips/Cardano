@@ -9,7 +9,10 @@ where
 
 import Cardano.Prelude
 
+import Formatting (build, sformat)
+
 import Control.Concurrent (threadDelay)
+import Control.Monad.Trans.Either (runEitherT)
 import Features.Blockchain (BlockchainLayer(..), createBlockchainFeature)
 import Cardano.Shell.Features.Logging (LoggingLayer(..), Trace, createLoggingFeature)
 import Cardano.Shell.Lib (runCardanoApplicationWithFeatures)
@@ -19,32 +22,34 @@ import Cardano.Shell.Types
   , CardanoApplication(..)
   , initializeCardanoEnvironment
   )
-  
+
 main :: IO ()
 main = do
   -- This is where the configuration and environment should come from; these
   -- values are currently thrown away in `createLoggingFeature`. The
   -- `createBlockchainFeature` only uses 'CardanoConfiguration' at the moment.
   let cardanoConfiguration = mainnetConfiguration
-  cardanoEnvironment <- initializeCardanoEnvironment
+  cardanoEnvironment             <- initializeCardanoEnvironment
 
   -- Features 'blockchainApp' will use.
   (loggingLayer, loggingFeature) <- createLoggingFeature
     cardanoEnvironment
     cardanoConfiguration
 
-  (blockchainLayer, blockchainFeature) <- createBlockchainFeature
+  bChainLayerAndFeature <- runEitherT $ createBlockchainFeature
     cardanoEnvironment
     cardanoConfiguration
     Production
     loggingLayer
-
-  -- Run application.
-  runCardanoApplicationWithFeatures
-      Production
-      [blockchainFeature, loggingFeature]
-    . CardanoApplication
-    $ blockchainApp loggingLayer blockchainLayer
+  case bChainLayerAndFeature of
+    Left err -> print $ sformat build err
+    Right (blockchainLayer, blockchainFeature) ->
+      -- Run application.
+      runCardanoApplicationWithFeatures
+          Production
+          [blockchainFeature, loggingFeature]
+        . CardanoApplication
+        $ blockchainApp loggingLayer blockchainLayer
 
 
 -- The overall application. These are various

@@ -23,6 +23,7 @@ library
                        Cardano.Chain.Block
                        Cardano.Chain.Common
                        Cardano.Chain.Constants
+                       Cardano.Chain.Conversion
                        Cardano.Chain.Delegation
                        Cardano.Chain.Delegation.Validation.Activation
                        Cardano.Chain.Delegation.Validation.Interface
@@ -139,6 +140,7 @@ library
                      , streaming-binary
                      , streaming-bytestring
                      , text
+                     , transformers-either
                      , time
                      , vector
 
@@ -248,6 +250,7 @@ test-suite cardano-ledger-test
                      , tasty-hedgehog
                      , text
                      , time
+                     , transformers-either
                      , vector
 
   default-language:    Haskell2010
