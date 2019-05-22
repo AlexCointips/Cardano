@@ -18,7 +18,7 @@ let
   #  packages.cbors.patches = [ ./one.patch ];
   #  packages.cbors.flags.optimize-gmp = false;
   #
-  compiler = (stack-pkgs.extras {}).compiler.nix-name;
+  compiler = (stack-pkgs.extras haskell.hackage).compiler.nix-name;
   pkgSet = haskell.mkStackPkgSet {
     inherit stack-pkgs;
     # The overlay allows extension or restriction of the set of
@@ -44,6 +44,12 @@ let
 
         packages.cardano-ledger.preBuild =
           "export CARDANO_MAINNET_MIRROR=${cardano-mainnet-mirror}/epochs";
+
+        # Run tests in `cardano-ledger` in `ContinuousIntegration` scenario
+        packages.cardano-ledger.setupTestFlags =
+          ["--test-option=--scenario=ContinuousIntegration"];
+
+        packages.cardano-ledger.flags.test-normal-form = true;
       }
     ];
   };
