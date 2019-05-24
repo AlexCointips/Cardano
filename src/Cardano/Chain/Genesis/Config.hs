@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns      #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -30,19 +29,19 @@ where
 
 import Cardano.Prelude
 
-import Control.Monad (fail)
 import Control.Monad.Except (MonadError(..), liftEither)
 import Data.Aeson
   (FromJSON, ToJSON, object, parseJSON, toJSON, withObject, (.:), (.:?), (.=))
 import Data.Coerce (coerce)
 import Data.Time (UTCTime)
-import Formatting (build, bprint, string)
+import Formatting (build, bprint, stext, string)
 import qualified Formatting.Buildable as B
 import System.IO.Error (userError)
+import Text.Megaparsec.Error (ParseErrorBundle)
 
 import Cardano.Binary (Annotated(..), Raw)
 import Cardano.Chain.Block.Header (HeaderHash, genesisHeaderHash)
-import Cardano.Chain.Common (BlockCount)
+import Cardano.Chain.Common (BlockCount, LovelaceError, LovelacePortionError)
 import Cardano.Chain.Genesis.Data
   (GenesisData(..), GenesisDataError, readGenesisData)
 import Cardano.Chain.Genesis.Hash (GenesisHash(..))
@@ -123,7 +122,7 @@ instance FromJSON StaticConfig where
         -- GenesisInitializer
         initializerV <- specO .: "initializer"
 
-        either fail (pure . GCSpec) $ mkGenesisSpec
+        either panic (pure . GCSpec) $ mkGenesisSpec
           avvmDistrV
           heavyDelegationV
           protocolParametersV
@@ -237,7 +236,7 @@ mkConfigFromStaticConfig rnm mSystemStart mSeed = \case
       ==             expectedHash
       `orThrowError` GenesisHashMismatch genesisHash expectedHash
 
-    mkConfigFromFile rnm fp (Right expectedHash)
+    mkConfigFromFile rnm fp expectedHash
 
 
   -- If a 'GenesisSpec' is given, we ensure we have a start time (needed if it's
@@ -263,18 +262,17 @@ mkConfigFromFile
   :: (MonadError ConfigurationError m, MonadIO m)
   => RequiresNetworkMagic
   -> FilePath
-  -> Either ConfigurationError (Hash Raw)
+  -> Hash Raw
+  -- ^ This hash comes from 'CardanoConfiguration'
+  -- which lives in cardano-shell
   -> m Config
-mkConfigFromFile rnm fp mGenesisHash = do
+mkConfigFromFile rnm fp expectedHash = do
   (genesisData, genesisHash) <-
     liftEither . first ConfigurationGenesisDataError =<< runExceptT
       (readGenesisData fp)
 
-  case mGenesisHash of
-    Left _ -> pure ()
-    Right expectedHash ->
-      (unGenesisHash genesisHash == expectedHash)
-        `orThrowError` GenesisHashMismatch genesisHash expectedHash
+  (unGenesisHash genesisHash == expectedHash)
+    `orThrowError` GenesisHashMismatch genesisHash expectedHash
 
   pure $ Config
     { configGenesisData      = genesisData
@@ -315,6 +313,11 @@ data ConfigurationError
   -- ^ Custom seed was provided, but it doesn't make sense
   | ConfigurationGenerationError GenesisDataGenerationError
   | GenesisHashDecodeError Text
+  | ConfigParsingError (ParseErrorBundle Text Void)
+  -- ^ An error occured while parsing 'CardanoConfiguration'
+  | ConfigPortionConvErr LovelacePortionError
+  | ConfigLovelaceConvErr LovelaceError
+  | ConfigGenSpecConvErr Text
   deriving (Show)
 
 instance B.Buildable ConfigurationError where
@@ -328,8 +331,6 @@ instance B.Buildable ConfigurationError where
              . build
              )
              genesisDataError
-    GenesisHashDecodeError decodeErr ->
-      bprint string $ toS decodeErr
     GenesisHashMismatch genesisHash expectedHash ->
       bprint ("GenesisData canonical JSON hash is different than expected. GenesisHash: "
              . string
@@ -345,3 +346,27 @@ instance B.Buildable ConfigurationError where
              . build
              )
              genesisDataGenerationError
+    GenesisHashDecodeError decodeErr ->
+     bprint ("GenesisHashDecodeError: "
+            . string
+            )
+            (toS decodeErr)
+    ConfigParsingError pErr ->
+      bprint string (show pErr)
+    ConfigPortionConvErr err ->
+      bprint ("ConfigPortionConvErr: "
+             . build
+             )
+             err
+    ConfigLovelaceConvErr err ->
+      bprint ("ConfigLovelaceConvErr: "
+             . build
+             )
+             err
+    ConfigGenSpecConvErr err ->
+      bprint ("ConfigGenSpecConvErr: "
+             . stext
+             )
+             err
+
+
