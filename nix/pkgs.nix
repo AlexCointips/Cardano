@@ -46,8 +46,8 @@ let
           "export CARDANO_MAINNET_MIRROR=${cardano-mainnet-mirror}/epochs";
 
         # Run tests in `cardano-ledger` in `ContinuousIntegration` scenario
-        packages.cardano-ledger.setupTestFlags =
-          ["--test-option=--scenario=ContinuousIntegration"];
+        # packages.cardano-ledger.setupTestFlags =
+        #   ["--test-option=--scenario=ContinuousIntegration"];
 
         packages.cardano-ledger.flags.test-normal-form = true;
       }

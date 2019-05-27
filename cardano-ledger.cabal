@@ -296,6 +296,7 @@ test-suite epoch-validation-normal-form-test
                      , hedgehog
                      , optparse-applicative
                      , resourcet
+                     , silently
                      , streaming
                      , tasty
                      , tasty-hedgehog

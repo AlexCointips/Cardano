@@ -45,7 +45,7 @@ import Cardano.Chain.Block
   , updateSigningHistory
   )
 import Cardano.Chain.Common (BlockCount(..), hashKey)
-import Cardano.Chain.Epoch.File (ParseError, parseEpochFilesWithBoundary)
+import Cardano.Chain.Epoch.File (ParseError, parseEpochFileWithBoundary)
 import Cardano.Chain.Genesis as Genesis (Config(..), configEpochSlots)
 import Cardano.Chain.Slotting (FlatSlotId)
 import Cardano.Crypto (VerificationKey)
@@ -81,13 +81,24 @@ ts_prop_mainnetEpochsValid shouldAssertNF scenario = withTests 1 . property $ do
     takeFiles :: [FilePath] -> [FilePath]
     takeFiles = case scenario of
       ContinuousIntegration -> identity
-      Development           -> take 15
+      Development           -> identity -- take 15
       QualityAssurance      -> identity
 
   -- Get a list of epoch files to perform validation on
   files <- takeFiles <$> liftIO mainnetEpochFiles
 
-  let stream = parseEpochFilesWithBoundary (configEpochSlots config) files
+  -- Validate each epoch separately, maybe checking normal form after each epoch
+  foldM_ (epochValid shouldAssertNF config) cvs files
+
+
+epochValid
+  :: ShouldAssertNF
+  -> Genesis.Config
+  -> ChainValidationState
+  -> FilePath
+  -> PropertyT IO ChainValidationState
+epochValid shouldAssertNF config cvs fp = do
+  let stream = parseEpochFileWithBoundary (configEpochSlots config) fp
 
   result <- (liftIO . runResourceT . runExceptT)
     (foldChainValidationState config cvs stream)
@@ -104,6 +115,8 @@ ts_prop_mainnetEpochsValid shouldAssertNF scenario = withTests 1 . property $ do
         <> "normal form.")
       assert =<< liftIO (isNormalForm $! cvs')
     NoAssertNF -> pass
+
+  pure cvs'
 
 
 data Error

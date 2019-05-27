@@ -99,6 +99,7 @@
             (hsPkgs.hedgehog)
             (hsPkgs.optparse-applicative)
             (hsPkgs.resourcet)
+            (hsPkgs.silently)
             (hsPkgs.streaming)
             (hsPkgs.tasty)
             (hsPkgs.tasty-hedgehog)
