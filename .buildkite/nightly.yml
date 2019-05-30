@@ -1,0 +1,7 @@
+steps:
+  - label: 'nightly tests'
+    command:
+      - "nix build -f default.nix nix-tools.tests.cardano-ledger.cardano-ledger-test -o cardano-ledger-test"
+      - "./cardano-ledger-test/cardano-ledger-*/cardano-ledger-test --scenario=QualityAssurance"
+    agents:
+      system: x86_64-linux
